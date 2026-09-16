@@ -6,6 +6,7 @@ namespace MultiplayerRestaurant
 {
     // A single server-spawned NetworkObject that survives scene changes (Lobby -> Gameplay)
     // so lobby chat and in-game chat share the same channel.
+    //aaaaaaaaaaaaaaaaaaaaaaaa
     public class ChatManager : NetworkBehaviour
     {
         public static ChatManager Instance { get; private set; }
