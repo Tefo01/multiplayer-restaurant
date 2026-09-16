@@ -565,7 +565,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MultiplayerRestaurant.NetworkPlayerController
   ShowTopMostFoldoutHeaderGroup: 1
   moveSpeed: 6
+  jumpHeight: 1.2
+  gravity: -20
+  mouseSensitivity: 0.15
+  pitchClamp: 80
+  cameraPivot: {fileID: 2281001083774101528}
+  playerCamera: {fileID: 4541306095863590364}
+  audioListener: {fileID: 3135799665540731397}
   nameLabel: {fileID: 5095507498169152615}
+  modelRenderer: {fileID: 2824071642264591781}
 --- !u!143 &3511839019394549215
 CharacterController:
   m_ObjectHideFlags: 0
