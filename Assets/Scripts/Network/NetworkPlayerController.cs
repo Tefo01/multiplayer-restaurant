@@ -38,6 +38,20 @@ namespace MultiplayerRestaurant
         [SerializeField] private TextMeshPro nameLabel;
         [SerializeField] private Renderer modelRenderer;
 
+        [Header("Kitchen Prop Push")]
+        // CharacterController has infinite mass as far as PhysX is concerned - Move() collides
+        // with and stops against a dynamic Rigidbody but never imparts force onto it. Pushing
+        // kitchen props requires this explicit OnControllerColliderHit handling; there is no
+        // passive/free push from CharacterController-vs-Rigidbody overlap alone (confirmed by a
+        // host-only test: 200 Move() steps straight into a prop produced zero displacement until
+        // this was added). Sets velocity directly rather than AddForce(Impulse) - an impulse
+        // fires on every single contacted hit (i.e. every frame of sustained contact), and since
+        // impulses accumulate, that blew a test prop from (2,-2.5,2) to velocity ~47 m/s and off
+        // into the void within a couple hundred ms of contact. Direct velocity assignment is
+        // idempotent per-frame instead, matching Unity's own documented CharacterController push
+        // pattern.
+        [SerializeField] private float propPushSpeed = 3f;
+
         private readonly NetworkVariable<FixedString32Bytes> _displayName = new NetworkVariable<FixedString32Bytes>(
             default,
             NetworkVariableReadPermission.Everyone,
@@ -206,6 +220,48 @@ namespace MultiplayerRestaurant
 
             move.y = _verticalVelocity;
             _controller.Move(move * Time.deltaTime);
+        }
+
+        // Fires synchronously from within _controller.Move() above, so it's already implicitly
+        // gated the same way HandleMove is (owner + Gameplay scene) - only the locally-owned
+        // player's own Move() calls ever land here.
+        private void OnControllerColliderHit(ControllerColliderHit hit)
+        {
+            var body = hit.collider.attachedRigidbody;
+            if (body == null) return;
+
+            // Ignore hits from standing/landing on top of a prop, so only sideways contact pushes it.
+            if (hit.moveDirection.y < -0.3f) return;
+
+            var pushDirection = new Vector3(hit.moveDirection.x, 0f, hit.moveDirection.z);
+            if (pushDirection.sqrMagnitude < 0.0001f) return;
+            pushDirection.Normalize();
+
+            if (IsServer)
+            {
+                // Host simulates props directly - drive the authoritative Rigidbody's velocity now.
+                body.linearVelocity = pushDirection * propPushSpeed;
+            }
+            else
+            {
+                // Non-host: our local copy of the prop is a kinematic NetworkRigidbody follower
+                // (no authority here), so pushing it locally would do nothing real. Send push
+                // intent to the host, which owns the actual simulation.
+                var propNetworkObject = body.GetComponent<NetworkObject>();
+                if (propNetworkObject != null)
+                    RequestPropPushServerRpc(propNetworkObject.NetworkObjectId, pushDirection);
+            }
+        }
+
+        [ServerRpc(RequireOwnership = false)]
+        private void RequestPropPushServerRpc(ulong propNetworkObjectId, Vector3 direction)
+        {
+            if (!NetworkManager.SpawnManager.SpawnedObjects.TryGetValue(propNetworkObjectId, out var propNetworkObject))
+                return;
+
+            var body = propNetworkObject.GetComponent<Rigidbody>();
+            if (body != null && !body.isKinematic)
+                body.linearVelocity = direction * propPushSpeed;
         }
     }
 }
