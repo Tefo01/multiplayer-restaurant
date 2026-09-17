@@ -183,6 +183,16 @@ hardcoded. Grab/release via `ServerRpc`s (`RequireOwnership = false`, same shape
 Fallback if this runs short on time: Unity's built-in `SpringJoint`/`ConfigurableJoint` with
 `breakForce` against a kinematic `MovePosition()`-driven anchor gives "too heavy = drops it"
 almost for free, at the cost of less control over the exact feel curve.
+**Implemented as `KitchenPhysicsObject.cs`** (new script, on the prop) +
+`NetworkPlayerController` additions (`DesiredHoldPoint`, `HandleHold`/`TryGrab`/`ReleaseHeld`,
+left-mouse-button hold-to-carry/release-to-drop input). Host-only tested: grab → spring-follow
+→ release all confirmed working. **Critical tuning constraint found by testing (see gotcha
+below): `maxHoldForce` must clear `mass * 9.81` with real headroom**, or the prop can never
+lift off the ground at all (spring force alone has to beat gravity before any is left over to
+actually move it towards the hold point). `KitchenPhysicsObject.prefab` currently ships
+`maxHoldForce = 90` against its `mass = 5` crate (weight ≈ 49N), which lifts cleanly and settles
+with a small, physically-plausible gravity sag below the exact hold point (heavier prop → more
+sag — a nice side effect of the plain P/D controller, not something explicitly designed for).
 **Important**: gate any new per-frame gameplay logic (grab input, hold-point updates) the
 same way `HandleMove`/`HandleLook` already are — on `IsOwner` *and* on
 `gameObject.scene.name == LobbyManager.GameplaySceneName` inside `Update`, per the documented
@@ -237,6 +247,12 @@ when a milestone is done.
 - [ ] **M2 — Hold/carry spring mechanic.** Depends on M1 (needs a stable prop to grab). The
   camera/`AudioListener` ownership gating this used to need as a prerequisite is already
   handled by the existing first-person controller — nothing to fix there.
+  **Progress:** implemented (`KitchenPhysicsObject.cs` + `NetworkPlayerController` grab/hold
+  input) and grab → spring-follow → release confirmed working host-only, including finding and
+  fixing the `maxHoldForce`-vs-gravity tuning bug (see gotcha below). Still needs the same
+  2-real-client Relay verification as M1 (client-side grab goes through the host-authoritative
+  `RequestGrabServerRpc`/`RequestReleaseServerRpc` path, untested with a real non-host client)
+  before this box is checked.
 - [ ] **M3 — Day/round cycle system.** No hard dependency on M1/M2 — a day can run and end
   with zero props/holding, so this can be built in parallel with or even before M1/M2 if the
   meta-loop (timer → summary → game-over → back to Lobby) is wanted working first.
@@ -282,3 +298,14 @@ when a milestone is done.
   directly instead (Unity's own documented `CharacterController`-push pattern) — it's idempotent
   per frame regardless of contact duration, so sustained pushing stays bounded at the configured
   push speed instead of runaway-accelerating.
+- **A held prop's `maxHoldForce` must clear `Rigidbody.mass * Physics.gravity.magnitude`
+  (≈ `mass * 9.81`) with real headroom, or it can never lift off the ground at all.** The
+  spring's force is clamped to `maxHoldForce` before `AddForce`, and if that cap is at or below
+  the prop's own weight, the vertical component alone consumes the whole force budget just to
+  (barely) cancel gravity — none left over to actually move it, so it just sits on the floor
+  (at best creeping sideways, fighting the floor's friction, if the target is mostly horizontal).
+  Found by host-only testing: `maxHoldForce = 40` against a `mass = 5` crate (weight 49.05N)
+  never lifted at all; raising to `maxHoldForce = 90` fixed it immediately and gave a believable
+  gravity sag at rest (spring force balances gravity below the exact target point: sag ≈
+  `mass * 9.81 / holdStiffness`). When tuning a new/heavier prop, check this ratio first before
+  assuming stiffness/damping need adjusting.

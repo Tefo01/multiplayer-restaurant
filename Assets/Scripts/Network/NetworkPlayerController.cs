@@ -52,7 +52,20 @@ namespace MultiplayerRestaurant
         // pattern.
         [SerializeField] private float propPushSpeed = 3f;
 
+        [Header("Kitchen Prop Hold")]
+        [SerializeField] private float holdDistance = 2f;
+        [SerializeField] private float maxGrabDistance = 3f;
+        [SerializeField] private float grabSphereRadius = 0.25f;
+
         private readonly NetworkVariable<FixedString32Bytes> _displayName = new NetworkVariable<FixedString32Bytes>(
+            default,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Owner);
+
+        // Streamed to the host every tick while holding something; KitchenPhysicsObject's
+        // FixedUpdate spring reads this on whichever prop this client currently holds. Same
+        // ownership-write pattern as _displayName above.
+        public readonly NetworkVariable<Vector3> DesiredHoldPoint = new NetworkVariable<Vector3>(
             default,
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Owner);
@@ -62,6 +75,10 @@ namespace MultiplayerRestaurant
         private float _verticalVelocity;
         private bool _cursorLocked;
         private bool _gameplayPresentationApplied;
+
+        // Local-only bookkeeping for grab/release input; the prop's own CurrentHolderClientId
+        // (server-owned) is the actual source of truth for who holds what.
+        private KitchenPhysicsObject _heldObject;
 
         private void Awake()
         {
@@ -90,7 +107,10 @@ namespace MultiplayerRestaurant
             _displayName.OnValueChanged -= HandleNameChanged;
 
             if (IsOwner && _gameplayPresentationApplied)
+            {
+                ReleaseHeld();
                 SetCursorLocked(false);
+            }
         }
 
         private void HandleNameChanged(FixedString32Bytes previous, FixedString32Bytes current)
@@ -126,6 +146,7 @@ namespace MultiplayerRestaurant
             HandleCursorToggle();
             HandleLook();
             HandleMove();
+            HandleHold();
         }
 
         private void EnterGameplayPresentation()
@@ -153,6 +174,8 @@ namespace MultiplayerRestaurant
         private void ExitGameplayPresentation()
         {
             _gameplayPresentationApplied = false;
+
+            ReleaseHeld();
 
             if (playerCamera != null) playerCamera.enabled = false;
             if (audioListener != null) audioListener.enabled = false;
@@ -222,6 +245,47 @@ namespace MultiplayerRestaurant
             _controller.Move(move * Time.deltaTime);
         }
 
+        private void HandleHold()
+        {
+            var mouse = Mouse.current;
+            if (mouse == null || playerCamera == null) return;
+
+            if (_heldObject == null)
+            {
+                if (mouse.leftButton.wasPressedThisFrame)
+                    TryGrab();
+            }
+            else if (mouse.leftButton.wasReleasedThisFrame)
+            {
+                ReleaseHeld();
+            }
+            else
+            {
+                DesiredHoldPoint.Value = playerCamera.transform.position + playerCamera.transform.forward * holdDistance;
+            }
+        }
+
+        private void TryGrab()
+        {
+            var ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
+            if (!Physics.SphereCast(ray, grabSphereRadius, out var hit, maxGrabDistance)) return;
+
+            var prop = hit.collider.GetComponentInParent<KitchenPhysicsObject>();
+            if (prop == null || prop.IsHeld) return;
+
+            _heldObject = prop;
+            DesiredHoldPoint.Value = playerCamera.transform.position + playerCamera.transform.forward * holdDistance;
+            prop.RequestGrabServerRpc();
+        }
+
+        private void ReleaseHeld()
+        {
+            if (_heldObject == null) return;
+
+            _heldObject.RequestReleaseServerRpc();
+            _heldObject = null;
+        }
+
         // Fires synchronously from within _controller.Move() above, so it's already implicitly
         // gated the same way HandleMove is (owner + Gameplay scene) - only the locally-owned
         // player's own Move() calls ever land here.
@@ -229,6 +293,10 @@ namespace MultiplayerRestaurant
         {
             var body = hit.collider.attachedRigidbody;
             if (body == null) return;
+
+            // Never shove whatever we're currently holding - it's driven by the spring, not by
+            // walking into it.
+            if (_heldObject != null && body == _heldObject.Rigidbody) return;
 
             // Ignore hits from standing/landing on top of a prop, so only sideways contact pushes it.
             if (hit.moveDirection.y < -0.3f) return;
