@@ -150,19 +150,21 @@ it, so heavy things drag, wobble, or can't be lifted at all.
 **Kitchen prop physics** — `KitchenPhysicsObject` prefab: in-scene-placed `NetworkObject`
 (not runtime-spawned — fixed kitchen layout) + `Rigidbody` + `Collider` +
 `NetworkTransform` left at its **default server-authoritative mode** (the opposite of the
-player, which is owner-authoritative) + `NetworkRigidbody` wired to it. Non-host pushes work
-even though the player moves via `CharacterController.Move()` rather than a `Rigidbody`:
-Unity syncs collider transforms into PhysX every frame regardless of how they got there, so a
-dynamic prop still resolves overlap against a `NetworkTransform`-interpolated remote player
-capsule and gets shoved. Ship that cheap version first in M1 (zero player-side changes); only
-add a kinematic push-proxy `Rigidbody` driven by `MovePosition()` on non-owned player
-instances if playtesting shows push feel is bad — this gives cleaner velocity-based contacts
-than passive overlap resolution. Expect a "jelly" feel for non-host pushes — a push only
-resolves once the host simulates it and replicates the result back, roughly one RTT plus
-`NetworkTransform`'s interpolation buffer. This is inherent to host-authoritative physics over
-Relay, not a bug to chase; mitigate cosmetically (local sound/particle on contact) rather than
-architecturally. Remember `Gameplay.unity`'s `Floor` is at world `y = -3`, not `0`, when
-placing/spawn-positioning props.
+player, which is owner-authoritative) + `NetworkRigidbody` wired to it.
+**Correction to the original assumption below (found via M1's host-only spike test — see
+gotcha below): pushing is NOT free/passive.** `CharacterController.Move()` collides with and
+stops against a dynamic `Rigidbody` but never imparts force onto it — this needed an explicit
+`OnControllerColliderHit` handler on `NetworkPlayerController`, which now exists. On the host
+it sets the hit prop's `Rigidbody.linearVelocity` directly (not `AddForce`/impulse — see
+gotcha); on a client it forwards push intent via a `ServerRpc(RequireOwnership = false)`
+(`RequestPropPushServerRpc`, same shape as `ChatManager.SendChatMessageServerRpc`) since the
+client's local copy of the prop is a kinematic `NetworkRigidbody` follower with no real
+authority to push. Expect a "jelly" feel for non-host pushes — a push only resolves once the
+host simulates it and replicates the result back, roughly one RTT plus `NetworkTransform`'s
+interpolation buffer. This is inherent to host-authoritative physics over Relay, not a bug to
+chase; mitigate cosmetically (local sound/particle on contact) rather than architecturally.
+Remember `Gameplay.unity`'s `Floor` is at world `y = -3`, not `0`, when placing/spawn-positioning
+props.
 
 **Hold/carry spring mechanic** — owner-only raycast/sphere-cast pickup from the player's own
 `playerCamera` (`NetworkPlayerController`'s existing first-person camera — already gated
@@ -228,6 +230,10 @@ when a milestone is done.
   Relay. No holding, no orders. Start with a small throwaway spike (one prop, two clients)
   before building further — the `CharacterController`-pushes-`Rigidbody` interaction is
   untested in this project.
+  **Progress:** spike prop (`KitchenTestCrate`/`KitchenPhysicsObject.prefab`) built and the
+  push-unpushable bug found + fixed host-only (see gotcha below) — see the "Kitchen prop
+  physics" system design above for the corrected behavior. Still needs the actual 2-real-client
+  Relay verification (non-host push via `RequestPropPushServerRpc`) before this box is checked.
 - [ ] **M2 — Hold/carry spring mechanic.** Depends on M1 (needs a stable prop to grab). The
   camera/`AudioListener` ownership gating this used to need as a prerequisite is already
   handled by the existing first-person controller — nothing to fix there.
@@ -262,3 +268,17 @@ when a milestone is done.
   (`IsOwner` + `gameObject.scene.name == LobbyManager.GameplaySceneName`), not
   `OnNetworkSpawn` — see the existing gotcha above about player spawn timing. Any Phase 2
   system reading/writing camera, cursor, or physics-affecting state must follow this.
+- **`CharacterController` does NOT push `Rigidbody`s for free.** The original M1 design
+  assumed passive PhysX overlap resolution alone would shove kitchen props — wrong.
+  `CharacterController` has infinite mass as far as PhysX is concerned: `Move()` collides with
+  and stops against a dynamic `Rigidbody` but never imparts force. Confirmed empirically with a
+  host-only isolated test (200 `Move()` steps straight into a test prop produced zero
+  displacement). Fix is an explicit `OnControllerColliderHit` handler on
+  `NetworkPlayerController` — see "Kitchen prop physics" above for the actual implementation.
+- **Don't push a `Rigidbody` with `AddForce(ForceMode.Impulse)` from `OnControllerColliderHit`.**
+  The hit fires on every frame of sustained contact (once per `Move()` call), and impulses
+  accumulate rather than replace — chaining ~25-30 hits in a row this way launched a test prop
+  to ~47 m/s and off into the void within a couple hundred ms. Set `Rigidbody.linearVelocity`
+  directly instead (Unity's own documented `CharacterController`-push pattern) — it's idempotent
+  per frame regardless of contact duration, so sustained pushing stays bounded at the configured
+  push speed instead of runaway-accelerating.
