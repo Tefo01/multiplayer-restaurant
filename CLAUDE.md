@@ -199,6 +199,28 @@ same way `HandleMove`/`HandleLook` already are — on `IsOwner` *and* on
 gotcha above about the player object spawning before scene load. Don't add new logic to
 `OnNetworkSpawn`.
 
+**Drawer/cupboard mechanic** — reuses the hold system as-is, with zero new C# code. A drawer
+or cupboard door is just another `KitchenPhysicsObject`-style prop (`Rigidbody` + `Collider` +
+`NetworkObject` + `NetworkTransform` + `NetworkRigidbody` + `KitchenPhysicsObject`), the only
+difference being a Unity `Joint` component constraining its motion to the correct single DOF:
+a `ConfigurableJoint` (`X`/`Y` `Motion = Locked`, `Z Motion = Limited` with a `linearLimit`) for
+a drawer's linear slide, or a `HingeJoint` (`useLimits = true`, `min`/`max` in degrees) for a
+cupboard door's rotation. Since the joint restricts every other axis, the exact same hold
+spring (`AddForce` toward `DesiredHoldPoint`) and push logic (`OnControllerColliderHit`
+setting velocity) that already work on freely-carryable props just naturally express
+themselves as "pull open" / "shove closed" along whatever axis the joint allows — grabbing a
+drawer handle or door and pulling it, or walking into it to close it, needs no drawer-specific
+code at all. `connectedBody` is left `null` on both joint types so they anchor directly to
+world space (no separate kinematic anchor body needed), with `connectedAnchor` set explicitly
+(`autoConfigureConnectedAnchor = false`) for deterministic placement. See the gotcha below
+about initial collider overlap, which caused a real bug during this build.
+`KitchenDrawer.prefab` and `KitchenCupboardDoor.prefab` are the two current instances
+(in-scene-placed in `Gameplay.unity`, next to a static, non-networked back-stop wall /
+cabinet frame — the drawer's back-stop is load-bearing (its `ConfigurableJoint`'s
+`linearLimit` is symmetric around the closed position, so nothing else stops it sliding
+backward through the cabinet), the door's frame is closer to just visual context
+(`HingeJoint`'s `min`/`max` limits are already asymmetric and precise on their own).
+
 **Day/round cycle** — `DayCycleManager`, an in-scene `NetworkBehaviour` in `Gameplay.unity`.
 `NetworkVariable<double> DayEndServerTime` set once at day start from
 `NetworkManager.ServerTime`; every client computes its own countdown locally each frame
@@ -252,6 +274,15 @@ when a milestone is done.
   Grab → spring-follow → release confirmed working by the user with real multi-client testing
   over Relay (client-side grab through the host-authoritative `RequestGrabServerRpc`/
   `RequestReleaseServerRpc` path).
+- [ ] **M2b — Drawer/cupboard mechanic (not in the original M1-M5 plan; added after M2).**
+  Reuses the hold/push systems as-is (see "Drawer/cupboard mechanic" system design above) —
+  no new C# code, just two new prop archetypes (`KitchenDrawer.prefab` with a
+  `ConfigurableJoint`, `KitchenCupboardDoor.prefab` with a `HingeJoint`) placed in
+  `Gameplay.unity`. **Progress:** host-only tested — grab-and-pull-open, release-and-stays-open,
+  and push-to-close all confirmed working for both. Found and fixed a real bug along the way
+  (initial collider overlap with static stop/frame geometry causing an explosive phantom-open
+  on scene start — see gotcha below). Still needs the same real multi-client Relay verification
+  as M1/M2 before this box is checked.
 - [ ] **M3 — Day/round cycle system.** No hard dependency on M1/M2 — a day can run and end
   with zero props/holding, so this can be built in parallel with or even before M1/M2 if the
   meta-loop (timer → summary → game-over → back to Lobby) is wanted working first.
@@ -308,3 +339,23 @@ when a milestone is done.
   gravity sag at rest (spring force balances gravity below the exact target point: sag ≈
   `mass * 9.81 / holdStiffness`). When tuning a new/heavier prop, check this ratio first before
   assuming stiffness/damping need adjusting.
+- **A joint-constrained prop (drawer/cupboard door) that overlaps its own static "stop"
+  geometry at rest will explosively depenetrate the instant physics starts.** Found building
+  the drawer/cupboard mechanic: the drawer's back-stop wall and the closed drawer's collider
+  overlapped by just 0.025 units in the source scene data, and on entering Play mode PhysX's
+  depenetration push shoved the drawer straight to its `ConfigurableJoint`'s full open limit
+  before any player ever touched it - looked exactly like a phantom "grab" had happened, and
+  wasted real debugging time on the joint's anchor config before the actual cause (simple
+  collider overlap) was found. Same thing happened independently with the cupboard door
+  overlapping its frame. Fix is just geometry: always leave a small explicit gap (~0.02-0.05
+  units) between a prop's closed/rest position and any static collider it sits against - check
+  this first, before suspecting the joint itself, if a joint-constrained prop is doing anything
+  unexplained at rest.
+- **Don't stress-test a joint-constrained prop's hold spring with a target far past its
+  travel/rotation limit.** Slamming a `ConfigurableJoint`/`HingeJoint` hard into its limit with
+  a large, poorly-aligned force differential produced a real instability once (the prop's
+  `CurrentHolderClientId` silently reset to "not held" with no error logged, for reasons not
+  fully root-caused). Not expected to be reachable in real play, since `DesiredHoldPoint` is
+  always bounded by the fixed `holdDistance` offset from the camera - only came up because a
+  test deliberately set a hold target several meters past the door's hinge limit. Worth knowing
+  if a future NetworkVariable-driven target (not gated by holdDistance) is ever added.
