@@ -279,10 +279,12 @@ when a milestone is done.
   no new C# code, just two new prop archetypes (`KitchenDrawer.prefab` with a
   `ConfigurableJoint`, `KitchenCupboardDoor.prefab` with a `HingeJoint`) placed in
   `Gameplay.unity`. **Progress:** host-only tested — grab-and-pull-open, release-and-stays-open,
-  and push-to-close all confirmed working for both. Found and fixed a real bug along the way
-  (initial collider overlap with static stop/frame geometry causing an explosive phantom-open
-  on scene start — see gotcha below). Still needs the same real multi-client Relay verification
-  as M1/M2 before this box is checked.
+  and push-to-close all confirmed working for both. Found and fixed two real bugs along the way:
+  initial collider overlap with static stop/frame geometry causing an explosive phantom-open on
+  scene start, and the cupboard door's hinge anchor being miscalculated (off by the scale
+  factor, leaving a sliver of door on the wrong side of the pivot) so the door collided with its
+  own frame mid-swing and wouldn't stay open — both documented as gotchas below. Still needs the
+  same real multi-client Relay verification as M1/M2 before this box is checked.
 - [ ] **M3 — Day/round cycle system.** No hard dependency on M1/M2 — a day can run and end
   with zero props/holding, so this can be built in parallel with or even before M1/M2 if the
   meta-loop (timer → summary → game-over → back to Lobby) is wanted working first.
@@ -359,3 +361,16 @@ when a milestone is done.
   always bounded by the fixed `holdDistance` offset from the camera - only came up because a
   test deliberately set a hold target several meters past the door's hinge limit. Worth knowing
   if a future NetworkVariable-driven target (not gated by holdDistance) is ever added.
+- **`Joint.anchor` (and `HingeJoint.anchor` specifically) is in the body's *unscaled mesh*
+  space, not its world-scaled local space - a Unity primitive cube's own edges are always at
+  local `±0.5`, regardless of `transform.localScale`.** `KitchenCupboardDoor`'s hinge was
+  originally set to `anchor = (-0.3, 0, 0)`, reasoning "half the door's 0.6 width" - looks
+  correct, but `Transform.TransformPoint` (used to sanity-check the world position) *does*
+  apply `localScale` on top of that local point, so it silently computed a world position 0.12
+  units inside the door's true edge (world x 4.82 instead of the actual edge at 4.70). That
+  left a sliver of the door swinging on the wrong side of the pivot, which collided with the
+  static cupboard frame mid-swing and reset `CurrentHolderClientId` unpredictably - reported by
+  the user as "the cupboard door doesn't stay open." Fix: for a primitive-cube-based prop, an
+  edge anchor is always `±0.5` on that axis, never `±(localScale/2)`. Verify any future joint
+  anchor by checking it against the object's actual known world-space edge coordinates, not
+  just by eyeballing the ratio against `localScale`.
