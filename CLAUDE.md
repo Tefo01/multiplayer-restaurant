@@ -235,24 +235,23 @@ against `ServerTime` on a coarse cadence — no per-frame work needed.
 Pick up one at a time in a fresh chat session; check the box and note any new gotchas below
 when a milestone is done.
 
-- [ ] **M1 — Kitchen prop physics foundation.** `KitchenPhysicsObject` prefab pattern,
+- [x] **M1 — Kitchen prop physics foundation.** `KitchenPhysicsObject` prefab pattern,
   `NetworkRigidbody`/`NetworkTransform` wiring, verify push feel with 2+ real clients over
   Relay. No holding, no orders. Start with a small throwaway spike (one prop, two clients)
   before building further — the `CharacterController`-pushes-`Rigidbody` interaction is
   untested in this project.
-  **Progress:** spike prop (`KitchenTestCrate`/`KitchenPhysicsObject.prefab`) built and the
-  push-unpushable bug found + fixed host-only (see gotcha below) — see the "Kitchen prop
-  physics" system design above for the corrected behavior. Still needs the actual 2-real-client
-  Relay verification (non-host push via `RequestPropPushServerRpc`) before this box is checked.
-- [ ] **M2 — Hold/carry spring mechanic.** Depends on M1 (needs a stable prop to grab). The
+  **Done:** spike prop (`KitchenTestCrate`/`KitchenPhysicsObject.prefab`) built, the
+  push-unpushable bug found + fixed (see gotcha below — see the "Kitchen prop physics" system
+  design above for the corrected behavior), and push feel confirmed working by the user with
+  real multi-client testing over Relay.
+- [x] **M2 — Hold/carry spring mechanic.** Depends on M1 (needs a stable prop to grab). The
   camera/`AudioListener` ownership gating this used to need as a prerequisite is already
   handled by the existing first-person controller — nothing to fix there.
-  **Progress:** implemented (`KitchenPhysicsObject.cs` + `NetworkPlayerController` grab/hold
-  input) and grab → spring-follow → release confirmed working host-only, including finding and
-  fixing the `maxHoldForce`-vs-gravity tuning bug (see gotcha below). Still needs the same
-  2-real-client Relay verification as M1 (client-side grab goes through the host-authoritative
-  `RequestGrabServerRpc`/`RequestReleaseServerRpc` path, untested with a real non-host client)
-  before this box is checked.
+  **Done:** implemented (`KitchenPhysicsObject.cs` + `NetworkPlayerController` grab/hold input),
+  including finding and fixing the `maxHoldForce`-vs-gravity tuning bug (see gotcha below).
+  Grab → spring-follow → release confirmed working by the user with real multi-client testing
+  over Relay (client-side grab through the host-authoritative `RequestGrabServerRpc`/
+  `RequestReleaseServerRpc` path).
 - [ ] **M3 — Day/round cycle system.** No hard dependency on M1/M2 — a day can run and end
   with zero props/holding, so this can be built in parallel with or even before M1/M2 if the
   meta-loop (timer → summary → game-over → back to Lobby) is wanted working first.
