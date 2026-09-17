@@ -2326,6 +2326,75 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2142678908}
   m_CullTransparentMesh: 1
+--- !u!1001 &747517432471120666
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 615501376303542594, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_InScenePlaced
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 615501376303542594, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: GlobalObjectIdHash
+      value: 321351242
+      objectReference: {fileID: 0}
+    - target: {fileID: 615501376303542594, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: InScenePlacedSourceGlobalObjectIdHash
+      value: 653740644
+      objectReference: {fileID: 0}
+    - target: {fileID: 1668654508424163465, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_Name
+      value: KitchenTestCrate
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -2.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5505798248096900729, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: f96ed7c116f416346bce0c9e3df6000e, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -2335,3 +2404,4 @@ SceneRoots:
   - {fileID: 1908101788}
   - {fileID: 1309568113}
   - {fileID: 1788212656}
+  - {fileID: 747517432471120666}
