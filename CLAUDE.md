@@ -285,6 +285,35 @@ when a milestone is done.
   factor, leaving a sliver of door on the wrong side of the pivot) so the door collided with its
   own frame mid-swing and wouldn't stay open — both documented as gotchas below. Still needs the
   same real multi-client Relay verification as M1/M2 before this box is checked.
+- [ ] **M2c — Real cupboard/drawer model (`Assets/cupboard.fbx`), wired to the same hold/push
+  system as M2b's placeholders.** `cabinet_door` + `cabinet_handle.005` (child) and
+  `drawer_drawpart.001` + `drawer_handle.004` (child) got the identical component stack as
+  `KitchenPhysicsObject` props (Rigidbody/BoxCollider/NetworkObject/NetworkTransform/
+  NetworkRigidbody/KitchenPhysicsObject + Joint), saved as `CabinetDoor.prefab` /
+  `DrawerPart.prefab`, in-scene-placed under a `cupboard` parent alongside the static
+  `cabinet_outerbox`/`drawer_outerbox` housing (MeshCollider, non-networked, non-convex is
+  fine since static). **Progress: confirmed working by the user via real playtesting** —
+  grab/open/close/reopen all working for both door and drawer. Three real bugs found and
+  fixed along the way (all now gotchas below): (1) this FBX's Blender export didn't have
+  transforms applied, baking an extreme ~96-100x uniform `localScale` onto every object with
+  correspondingly tiny local mesh data — fixed by baking scale into the mesh vertices and
+  resetting `localScale` to 1, not by re-exporting; (2) the usual initial-collider-overlap
+  issue against the static housing (~0.004 units) - same fix as M2b, explicit clearance gap;
+  (3) the drawer's `ConfigurableJoint` used a naive symmetric limit around its closed
+  position, which let it slide **past** closed into the cabinet interior when pushed shut far
+  enough that the outerbox started occupying the space the drawer's own collider needed for
+  the grab raycast to reach it - "closed, can't reopen" was actually "closed too far, grab
+  raycast hits the housing instead." Fixed by offsetting `connectedAnchor` so the placed
+  (closed) position sits at one **edge** of the joint's range instead of the middle - see the
+  gotcha below for the general form of this fix. Also added a low-friction `PhysicsMaterial`
+  (`Assets/Physics/LowFrictionSlide.physicMaterial`, `dynamicFriction`/`staticFriction` =
+  0.05) to the drawer's collider, since it sits with much more contact area against the real
+  mesh housing than the old placeholder ever touched against a flat floor, and default
+  friction was making it feel sticky. `NetworkPlayerController.TryGrab` and
+  `KitchenPhysicsObject.FixedUpdate` both carry `[HoldDebug]` `Debug.Log` calls (the
+  `FixedUpdate` one throttled to `Time.frameCount % 30`) - deliberately left in per the user's
+  request, in case this class of bug resurfaces. Still needs the same real multi-client Relay
+  verification as M1/M2/M2b before this box is checked.
 - [ ] **M3 — Day/round cycle system.** No hard dependency on M1/M2 — a day can run and end
   with zero props/holding, so this can be built in parallel with or even before M1/M2 if the
   meta-loop (timer → summary → game-over → back to Lobby) is wanted working first.
@@ -361,16 +390,60 @@ when a milestone is done.
   always bounded by the fixed `holdDistance` offset from the camera - only came up because a
   test deliberately set a hold target several meters past the door's hinge limit. Worth knowing
   if a future NetworkVariable-driven target (not gated by holdDistance) is ever added.
-- **`Joint.anchor` (and `HingeJoint.anchor` specifically) is in the body's *unscaled mesh*
-  space, not its world-scaled local space - a Unity primitive cube's own edges are always at
-  local `±0.5`, regardless of `transform.localScale`.** `KitchenCupboardDoor`'s hinge was
-  originally set to `anchor = (-0.3, 0, 0)`, reasoning "half the door's 0.6 width" - looks
-  correct, but `Transform.TransformPoint` (used to sanity-check the world position) *does*
-  apply `localScale` on top of that local point, so it silently computed a world position 0.12
-  units inside the door's true edge (world x 4.82 instead of the actual edge at 4.70). That
-  left a sliver of the door swinging on the wrong side of the pivot, which collided with the
-  static cupboard frame mid-swing and reset `CurrentHolderClientId` unpredictably - reported by
-  the user as "the cupboard door doesn't stay open." Fix: for a primitive-cube-based prop, an
-  edge anchor is always `±0.5` on that axis, never `±(localScale/2)`. Verify any future joint
-  anchor by checking it against the object's actual known world-space edge coordinates, not
-  just by eyeballing the ratio against `localScale`.
+- **`Joint.anchor` is a completely ordinary local-space point — `Transform.TransformPoint`/
+  `InverseTransformPoint` convert it to/from world space exactly like any other local point,
+  scale included.** (An earlier version of this gotcha misdiagnosed the bug below as some
+  special "unscaled mesh space" - it isn't; that was just a hand-arithmetic mistake, not a
+  Joint quirk.) `KitchenCupboardDoor`'s hinge was originally set to `anchor = (-0.3, 0, 0)`,
+  reasoning "half the door's 0.6 *world*-space width" - but a local value gets *multiplied* by
+  `localScale` on its way to world space, so using a world-space distance directly as the
+  local value is wrong by a factor of `localScale`; for this door (`localScale.x = 0.6`) the
+  correct local value was `-0.3 / 0.6 = -0.5`. The fix that "worked" (`anchor = -0.5`) wasn't
+  landing on some special unscaled-mesh convention, it was just `InverseTransformPoint`'s
+  ordinary scale-aware math finally applied correctly. **The robust way to get a joint anchor
+  right, always: compute the desired point in world space (e.g. from `Renderer.bounds`), then
+  call `transform.InverseTransformPoint(worldPoint)` and use that result verbatim** - don't
+  hand-derive a fraction of `localScale`/mesh width and guess which "space" it needs to be in.
+- **An FBX with an extreme baked-in import scale (localScale in the tens-to-hundreds) usually
+  means Blender transforms weren't applied before export, and it's worth baking the scale into
+  the mesh on the Unity side rather than re-exporting.** `Assets/cupboard.fbx`'s parts all
+  shared the exact same non-identity transform (`localRot ≈ (270°, 0, 0)`, `localScale ≈
+  93-100`) - the giveaway that every object in the source Blender file needs Object → Apply →
+  All Transforms before its next export. Re-exporting isn't required to keep working, though:
+  for each affected part, read `MeshFilter.sharedMesh`, write a **new** `Mesh` (don't mutate
+  the shared imported asset) with every vertex pre-multiplied by the object's current
+  `localScale`, assign it back, then set `localScale = Vector3.one`. Any child (e.g. a handle)
+  needs the same treatment - detach it first (`SetParent(null, true)` to preserve world
+  transform), bake it independently, then re-parent (`SetParent(parent, true)`) so its local
+  transform re-resolves against the parent's new scale-1 frame.
+- **A symmetric `ConfigurableJoint` linear limit around a slideable prop's "closed" position
+  lets it travel PAST closed, not just open - offset `connectedAnchor` so closed sits at one
+  EDGE of the range instead of the middle.** The drawer's joint originally used
+  `connectedAnchor = closedPosition`, `limit = 0.5`, giving an achievable range of
+  `[closed - 0.5, closed + 0.5]` - the extra "closed - 0.5" half let a hard push shove it
+  further into the cabinet than its actual closed position. Symptom looked exactly like "grab
+  stopped working once fully closed," because the over-pushed drawer's collider was now behind
+  the static housing's opening, so the grab raycast hit the housing instead. Not a hold-logic
+  or raycast bug - the joint was the one letting it go somewhere it visually shouldn't ever be
+  able to reach. Fix: to get an achievable range of `[closed, closed + travel]` (same total
+  open reach, no over-closing), set `limit = travel / 2` and
+  `connectedAnchor = closedPosition + openDirectionWorld * limit` (i.e. the anchor sits at the
+  *midpoint* of the desired range, not at closed itself).
+- **CRITICAL: manually driving physics via `execute_code` (`Rigidbody.AddForce`/`AddTorque`
+  called from an out-of-band MCP eval snippet) is NOT reliable for diagnosing joint/physics
+  bugs - trust real playtesting over it.** A large chunk of this session was spent chasing what
+  looked like a total, reproducible breakdown of Netcode + `Joint` physics: `AddTorque`/
+  `AddForce` calls (even via the `HingeJoint`'s own `motor`) on `NetworkObject`s produced
+  exactly zero response, including on the OLD, already-shipped, previously-verified-working
+  `KitchenCupboardDoor` and on a completely unrelated free-floating crate - across a fresh
+  Play session, a full domain reload, and even a full Unity Editor restart. The apparent
+  conclusion (`HingeJoint`/`ConfigurableJoint` don't work at all on `NetworkObject`s in this
+  project) was wrong: the user actually played the exact same objects normally (mouse-driven
+  grab, real gameplay input) and they worked fine the whole time. The `execute_code` bridge
+  runs in a separate assembly-load context (see the existing gotcha above re:
+  `Unity.Services.*` static singletons reading stale/null there) - this apparently extends to
+  physics manipulation too: reads of `.position`/`.rotation`/`.IsSleeping()` came back
+  self-consistent and plausible-looking, but the actual force/torque calls silently failed to
+  affect the real simulation the live game was running. **When a physics/joint mechanic looks
+  broken only under `execute_code`-driven force injection, don't trust that signal - ask for
+  (or do) a real Play-button playtest with actual input before concluding anything is broken.**

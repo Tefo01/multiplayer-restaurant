@@ -268,11 +268,25 @@ namespace MultiplayerRestaurant
         private void TryGrab()
         {
             var ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
-            if (!Physics.SphereCast(ray, grabSphereRadius, out var hit, maxGrabDistance)) return;
+            if (!Physics.SphereCast(ray, grabSphereRadius, out var hit, maxGrabDistance))
+            {
+                Debug.Log("[HoldDebug] TryGrab: sphere-cast hit nothing.");
+                return;
+            }
 
             var prop = hit.collider.GetComponentInParent<KitchenPhysicsObject>();
-            if (prop == null || prop.IsHeld) return;
+            if (prop == null)
+            {
+                Debug.Log($"[HoldDebug] TryGrab: hit '{hit.collider.name}' but it has no KitchenPhysicsObject.");
+                return;
+            }
+            if (prop.IsHeld)
+            {
+                Debug.Log($"[HoldDebug] TryGrab: '{prop.name}' is already held (by client {prop.CurrentHolderClientId}).");
+                return;
+            }
 
+            Debug.Log($"[HoldDebug] TryGrab: grabbing '{prop.name}' at {prop.transform.position}.");
             _heldObject = prop;
             DesiredHoldPoint.Value = playerCamera.transform.position + playerCamera.transform.forward * holdDistance;
             prop.RequestGrabServerRpc();

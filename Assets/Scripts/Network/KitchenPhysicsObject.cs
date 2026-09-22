@@ -88,6 +88,16 @@ namespace MultiplayerRestaurant
             var force = holdStiffness * toTarget - holdDamping * Rigidbody.linearVelocity;
             force = Vector3.ClampMagnitude(force, maxHoldForce);
             Rigidbody.AddForce(force, ForceMode.Force);
+
+            // Throttled (~twice/sec) so the console stays readable. If "force" is small/zero
+            // despite a large "toTargetDist", that's a hold-logic problem (spring not pulling).
+            // If force stays pinned at maxHoldForce but "pos" never moves toward "target", the
+            // joint/collision is physically resisting it, not the hold logic.
+            if (Time.frameCount % 30 == 0)
+            {
+                Debug.Log($"[HoldDebug] {name} pos={Rigidbody.position} target={holderController.DesiredHoldPoint.Value} " +
+                          $"toTargetDist={toTarget.magnitude:F3} force={force} (mag={force.magnitude:F1}) vel={Rigidbody.linearVelocity} (mag={Rigidbody.linearVelocity.magnitude:F3})");
+            }
         }
     }
 }
